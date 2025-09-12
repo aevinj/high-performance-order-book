@@ -96,6 +96,32 @@ void LimitOrderBook::cancel_order(int64_t order_id) {
 }
 
 void LimitOrderBook::modify_order(int64_t order_id, int32_t new_quantity) {
-    // TODO: Implement this method.
-    std::cout << "Modify functionality is not yet implemented." << std::endl;
+    auto order_by_id_it = orders_by_id.find(order_id);
+    if (order_by_id_it == orders_by_id.end()) {
+        std::cout << "Could not find order: " << order_id << std::endl;
+        return; // Return immediately if not found
+    }
+
+    if (new_quantity <= 0) {
+        std::cout << "Quantity must be positive. Cancelling order " << order_id << " instead." << std::endl;
+        cancel_order(order_id);
+        return;
+    }
+
+    auto& order_ptr = order_by_id_it->second;
+    auto diff = new_quantity - order_ptr->quantity;
+    order_ptr->quantity += diff;
+    if (order_ptr->side == OrderSide::Buy) {
+        auto price_level_it = bids.find(order_ptr->price);
+        if (price_level_it != bids.end()) {
+            auto& price_level_unique_ptr = price_level_it->second;
+            price_level_unique_ptr->total_quantity += diff;
+        }
+    } else {
+        auto price_level_it = asks.find(order_ptr->price);
+        if (price_level_it != asks.end()) {
+            auto& price_level_unique_ptr = price_level_it->second;
+            price_level_unique_ptr->total_quantity += diff;
+        }
+    }
 }
