@@ -30,12 +30,69 @@ void LimitOrderBook::add_order(int64_t order_id, int64_t price, int32_t quantity
 }
 
 void LimitOrderBook::cancel_order(int64_t order_id) {
-    // TODO: Implement this method.
-    // It requires a way to quickly look up an order by its ID.
-    // A simple way would be to iterate through all bids and asks,
-    // but a better way is to use a std::unordered_map<int64_t, Order*>
-    // for quick lookup. We will add this later.
-    std::cout << "Cancel functionality is not yet implemented." << std::endl;
+    // Step 1: Find the order using .find() and get its iterator.
+    auto it = orders_by_id.find(order_id);
+    if (it == orders_by_id.end()) {
+        std::cout << "Could not find order: " << order_id << std::endl;
+        return; // Return immediately if not found
+    }
+
+    // Now, get the unique_ptr and the raw pointer from the iterator.
+    // This is the correct way to get the data without a second lookup.
+    const auto& order_unique_ptr = it->second;
+    int64_t price = order_unique_ptr->price;
+    OrderSide side = order_unique_ptr->side;
+    int32_t quantity = order_unique_ptr->quantity;
+
+    // This is the core logic. Restructure the if/else to avoid the scope bug.
+    if (side == OrderSide::Buy) {
+        // Find the price level in the bids map
+        auto price_level_it = bids.find(price);
+        if (price_level_it != bids.end()) {
+            // Get a reference to the PriceLevel's unique_ptr
+            auto& price_level_unique_ptr = price_level_it->second;
+
+            // Step 2: Decrement the quantity
+            price_level_unique_ptr->total_quantity -= quantity;
+
+            // Step 3: Remove the raw pointer from the list.
+            // Use a loop with an iterator to find the pointer.
+            auto& orders_list = price_level_unique_ptr->orders;
+            for (auto list_it = orders_list.begin(); list_it != orders_list.end(); ++list_it) {
+                if (*list_it == order_unique_ptr.get()) {
+                    orders_list.erase(list_it);
+                    break;
+                }
+            }
+
+            // Optional: If the price level is now empty, remove it from the map.
+            if (orders_list.empty()) {
+                bids.erase(price_level_it);
+            }
+        }
+    } else { // OrderSide::Sell
+        auto price_level_it = asks.find(price);
+        if (price_level_it != asks.end()) {
+            auto& price_level_unique_ptr = price_level_it->second;
+            price_level_unique_ptr->total_quantity -= quantity;
+
+            auto& orders_list = price_level_unique_ptr->orders;
+            for (auto list_it = orders_list.begin(); list_it != orders_list.end(); ++list_it) {
+                if (*list_it == order_unique_ptr.get()) {
+                    orders_list.erase(list_it);
+                    break;
+                }
+            }
+            if (orders_list.empty()) {
+                bids.erase(price_level_it);
+            }
+        }
+    }
+
+    // Step 4: Erase the unique_ptr from the orders_by_id map to deallocate memory.
+    orders_by_id.erase(it);
+
+    std::cout << "Successfully canceled order: " << order_id << std::endl;
 }
 
 void LimitOrderBook::modify_order(int64_t order_id, int32_t new_quantity) {

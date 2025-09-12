@@ -33,6 +33,33 @@ int main() {
         }
         std::cout << std::endl;
     }
+    
+    std::cout << "Cancelling orders: 1 & 5" << std::endl;
+
+    lob.cancel_order(1);
+    lob.cancel_order(5);
+    
+    std::cout << "\n--- Current Bids ---" << std::endl;
+    for (const auto& pair : lob.get_bids()) {
+        const auto& price = pair.first;
+        const auto& price_level = pair.second;
+        std::cout << "Price: " << price << ", Total Quantity: " << price_level->total_quantity << ", Orders: ";
+        for (const auto& order : price_level->orders) {
+            std::cout << "(" << order->order_id << ", " << order->quantity << ") ";
+        }
+        std::cout << std::endl;
+    }
+
+    std::cout << "\n--- Current Asks ---" << std::endl;
+    for (const auto& pair : lob.get_asks()) {
+        const auto& price = pair.first;
+        const auto& price_level = pair.second;
+        std::cout << "Price: " << price << ", Total Quantity: " << price_level->total_quantity << ", Orders: ";
+        for (const auto& order : price_level->orders) {
+            std::cout << "(" << order->order_id << ", " << order->quantity << ") ";
+        }
+        std::cout << std::endl;
+    }
 
     return 0;
 }
