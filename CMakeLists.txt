@@ -12,8 +12,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF) # Avoid compiler-specific extensions
 
-# Add the main executable target
-add_executable(OrderBookApp src/main.cpp)
+# Define the source files for our main executable
+add_executable(OrderBookApp
+    src/main.cpp
+    src/LimitOrderBook.cpp
+)
 
 # Enable stricter warnings (per-target, not globally)
 if (MSVC)
