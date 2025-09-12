@@ -3,7 +3,9 @@
 
 void LimitOrderBook::add_order(int64_t order_id, int64_t price, int32_t quantity, OrderSide side) {
     // Create the new order object
-    auto new_order = std::make_unique<Order>(Order{order_id, price, quantity, side});
+    std::unique_ptr<Order>& order_ref = orders_by_id[order_id]; // allocates if doesn't exist
+    order_ref = std::make_unique<Order>(Order{order_id, price, quantity, side});
+    Order* new_order_ptr = order_ref.get();
 
     // Simple logic for a non-matching order (no trades)
     if (side == OrderSide::Buy) {
@@ -12,7 +14,7 @@ void LimitOrderBook::add_order(int64_t order_id, int64_t price, int32_t quantity
             // If the price level doesn't exist, create it
             price_level = std::make_unique<PriceLevel>();
         }
-        price_level->orders.push_back(std::move(new_order));
+        price_level->orders.push_back(new_order_ptr);
         price_level->total_quantity += quantity;
     } else { // side == OrderSide::Sell
         auto& price_level = asks[price];
@@ -20,7 +22,7 @@ void LimitOrderBook::add_order(int64_t order_id, int64_t price, int32_t quantity
             // If the price level doesn't exist, create it
             price_level = std::make_unique<PriceLevel>();
         }
-        price_level->orders.push_back(std::move(new_order));
+        price_level->orders.push_back(new_order_ptr);
         price_level->total_quantity += quantity;
     }
 

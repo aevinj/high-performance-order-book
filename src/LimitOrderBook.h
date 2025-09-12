@@ -5,12 +5,13 @@
 #include <map>
 #include <list>
 #include <memory> // For std::unique_ptr
+#include <unordered_map>
 
 // Represents a collection of orders at a single price level
 class PriceLevel {
 public:
     // Use a list to maintain Price-Time Priority
-    std::list<std::unique_ptr<Order>> orders;
+    std::list<Order*> orders;
     int32_t total_quantity = 0;
 };
 
@@ -19,6 +20,7 @@ private:
     // Maps for bids (sorted descending) and asks (sorted ascending)
     std::map<int64_t, std::unique_ptr<PriceLevel>, std::greater<int64_t>> bids;
     std::map<int64_t, std::unique_ptr<PriceLevel>> asks;
+    std::unordered_map<int64_t, std::unique_ptr<Order>> orders_by_id; // For quick order lookup by ID
 
 public:
     void add_order(int64_t order_id, int64_t price, int32_t quantity, OrderSide side);
