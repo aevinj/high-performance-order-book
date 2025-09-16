@@ -84,7 +84,7 @@ void LimitOrderBook::cancel_order(int64_t order_id) {
                 }
             }
             if (orders_list.empty()) {
-                bids.erase(price_level_it);
+                asks.erase(price_level_it);
             }
         }
     }
