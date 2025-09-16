@@ -22,8 +22,11 @@ private:
     std::map<int64_t, std::unique_ptr<PriceLevel>> asks;
     std::unordered_map<int64_t, std::unique_ptr<Order>> orders_by_id; // For quick order lookup by ID
 
+    void match(Order* incoming);
+    void insert_order(Order* incoming);
 public:
     void add_order(int64_t order_id, int64_t price, int32_t quantity, OrderSide side);
+    void process_order(int64_t order_id, int64_t price, int32_t quantity, OrderSide side);
     void cancel_order(int64_t order_id);
     void modify_order(int64_t order_id, int32_t new_quantity);
     // Add a getter to view the book for testing

@@ -1,6 +1,5 @@
-cmake_minimum_required(VERSION 3.25) # modern baseline, works with your CMake 4.1.1+
+cmake_minimum_required(VERSION 3.25)
 
-# Project metadata
 project(OrderBookApp 
     VERSION 0.1.0
     DESCRIPTION "A high-performance C++ implementation of a Limit Order Book"
@@ -10,21 +9,37 @@ project(OrderBookApp
 # Require C++20
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF) # Avoid compiler-specific extensions
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Define the source files for our main executable
-add_executable(OrderBookApp
-    src/main.cpp
+# ---- Core library ----
+add_library(orderbook
     src/LimitOrderBook.cpp
 )
+target_include_directories(orderbook PUBLIC src)
 
-# Enable stricter warnings (per-target, not globally)
 if (MSVC)
-    target_compile_options(OrderBookApp PRIVATE /W4 /permissive-)
+    target_compile_options(orderbook PRIVATE /W4 /permissive-)
 else()
-    target_compile_options(OrderBookApp PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(orderbook PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-# Example: if you later add include directories
-# target_include_directories(OrderBookApp PRIVATE include)
+# ---- Main app ----
+add_executable(OrderBookApp src/main.cpp)
+target_link_libraries(OrderBookApp PRIVATE orderbook)
 
+# ---- GoogleTest setup ----
+include(FetchContent)
+FetchContent_Declare(
+  googletest
+  URL https://github.com/google/googletest/archive/refs/tags/v1.15.2.zip
+)
+FetchContent_MakeAvailable(googletest)
+
+enable_testing()
+
+# ---- Tests ----
+add_executable(OrderBookTests tests/OrderBookTests.cpp)
+target_link_libraries(OrderBookTests PRIVATE orderbook gtest_main)
+
+include(GoogleTest)
+gtest_discover_tests(OrderBookTests)

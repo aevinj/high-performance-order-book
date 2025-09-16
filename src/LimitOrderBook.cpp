@@ -29,6 +29,118 @@ void LimitOrderBook::add_order(int64_t order_id, int64_t price, int32_t quantity
     std::cout << "Added order " << order_id << " at price " << price << " with quantity " << quantity << std::endl;
 }
 
+void LimitOrderBook::process_order(int64_t order_id, int64_t price, int32_t quantity, OrderSide side) {
+    // create the order object
+    std::unique_ptr<Order>& order_ref = orders_by_id[order_id];
+    order_ref = std::make_unique<Order>(Order{order_id, price, quantity, side});
+    Order* new_order_ptr = order_ref.get();
+    
+    // try to match
+    match(new_order_ptr);
+
+    // if still has quantity, insert into book
+    if (new_order_ptr->quantity > 0) {
+        insert_order(new_order_ptr);
+    } else {
+        orders_by_id.erase(order_id);
+    }
+}
+
+void LimitOrderBook::match(Order* incoming) {
+    if (incoming->side == OrderSide::Buy) {
+        while (incoming->quantity > 0 && !asks.empty()) {
+            auto best_ask = asks.begin();
+            int64_t best_ask_price = best_ask->first;
+            std::unique_ptr<PriceLevel>& best_ask_priceLevel = best_ask->second;
+
+            if (incoming->price < best_ask_price) break;
+
+            for (auto it = best_ask_priceLevel->orders.begin(); it != best_ask_priceLevel->orders.end() && incoming->quantity > 0;) {
+                Order* resting = *it;
+                int32_t trade_qty = std::min(incoming->quantity, resting->quantity);
+
+                // Decrement quantities
+                incoming->quantity -= trade_qty;
+                resting->quantity -= trade_qty;
+                best_ask_priceLevel->total_quantity -= trade_qty;
+
+                std::cout << "Trade: Buy " << trade_qty << " @ " << best_ask_price 
+                          << " (incoming " << incoming->order_id 
+                          << " vs resting " << resting->order_id << ")\n";
+
+                if (resting->quantity == 0) {
+                    // Remove from orders_by_id
+                    orders_by_id.erase(resting->order_id);
+                    // Remove from list
+                    it = best_ask_priceLevel->orders.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            // If price level empty, remove it
+            if (best_ask_priceLevel->orders.empty()) {
+                asks.erase(best_ask);
+            }
+        }
+    } else if (incoming->side == OrderSide::Sell) {
+        while (incoming->quantity > 0 && !bids.empty()) {
+            auto best_bid = bids.begin();
+            int64_t best_bid_price = best_bid->first;
+            std::unique_ptr<PriceLevel>& best_bid_priceLevel = best_bid->second;
+
+            if (incoming->price > best_bid_price) break;
+
+            auto& orders_list = best_bid_priceLevel->orders;
+            for (auto it = orders_list.begin(); it != orders_list.end() && incoming->quantity > 0; ) {
+                Order* resting = *it;
+                int32_t trade_qty = std::min(incoming->quantity, resting->quantity);
+
+                incoming->quantity -= trade_qty;
+                resting->quantity -= trade_qty;
+                best_bid_priceLevel->total_quantity -= trade_qty;
+
+                std::cout << "Trade: Sell " << trade_qty << " @ " << best_bid_price
+                          << " (incoming " << incoming->order_id
+                          << " vs resting " << resting->order_id << ")\n";
+
+                if (resting->quantity == 0) {
+                    orders_by_id.erase(resting->order_id);
+                    it = orders_list.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+
+            if (orders_list.empty()) {
+                bids.erase(best_bid);
+            }
+        }
+    }
+}
+
+void LimitOrderBook::insert_order(Order* incoming) {
+    if (incoming->side == OrderSide::Buy) {
+
+        auto& price_level = bids[incoming->price];
+        if (!price_level) {
+            // If the price level doesn't exist, create it
+            price_level = std::make_unique<PriceLevel>();
+        }
+        price_level->orders.push_back(incoming);
+        price_level->total_quantity += incoming->quantity;
+
+    } else if (incoming->side == OrderSide::Sell) {
+
+        auto& price_level = asks[incoming->price];
+        if (!price_level) {
+            // If the price level doesn't exist, create it
+            price_level = std::make_unique<PriceLevel>();
+        }
+        price_level->orders.push_back(incoming);
+        price_level->total_quantity += incoming->quantity;
+    }
+}
+
 void LimitOrderBook::cancel_order(int64_t order_id) {
     // Step 1: Find the order using .find() and get its iterator.
     auto it = orders_by_id.find(order_id);
