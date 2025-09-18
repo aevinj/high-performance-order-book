@@ -41,5 +41,12 @@ enable_testing()
 add_executable(OrderBookTests tests/OrderBookTests.cpp)
 target_link_libraries(OrderBookTests PRIVATE orderbook gtest_main)
 
+# ---- Link gperftools profiler (optional, if installed) ----
+find_library(PROFILER_LIB profiler)
+if (PROFILER_LIB)
+    message(STATUS "Profiler library found: ${PROFILER_LIB}")
+    target_link_libraries(OrderBookTests PRIVATE ${PROFILER_LIB})
+endif()
+
 include(GoogleTest)
 gtest_discover_tests(OrderBookTests)
