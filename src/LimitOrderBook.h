@@ -6,6 +6,7 @@
 #include <list>
 #include <memory> // For std::unique_ptr
 #include <unordered_map>
+#include <MemoryPool.h>
 
 // Represents a collection of orders at a single price level
 class PriceLevel {
@@ -20,11 +21,14 @@ private:
     // Maps for bids (sorted descending) and asks (sorted ascending)
     std::map<int64_t, std::unique_ptr<PriceLevel>, std::greater<int64_t>> bids;
     std::map<int64_t, std::unique_ptr<PriceLevel>> asks;
-    std::unordered_map<int64_t, std::unique_ptr<Order>> orders_by_id; // For quick order lookup by ID
+    std::unordered_map<int64_t, Order*> orders_by_id; // For quick order lookup by ID
+    MemoryPool<Order> order_pool;
 
     void match(Order* incoming);
     void insert_order(Order* incoming);
 public:
+    explicit LimitOrderBook(size_t pool_size = 1'000'000)
+        : order_pool(pool_size) {}
     void add_order(int64_t order_id, int64_t price, int32_t quantity, OrderSide side);
     void process_order(int64_t order_id, int64_t price, int32_t quantity, OrderSide side);
     void cancel_order(int64_t order_id);
