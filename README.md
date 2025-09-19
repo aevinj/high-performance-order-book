@@ -17,6 +17,7 @@ This repository is part of a structured project plan to progressively refine a n
 - ✅ Stress test framework with invariant checks
 - ✅ Unit test suite (GoogleTest) — 9 functional tests
 - ✅ Basic performance benchmarking (~54K ops/sec @ 100K random ops, Release build)
+- ✅ Custom memory pool for order allocation (eliminates heap allocation overhead, prepares for deterministic latency)
 
 ---
 
@@ -25,7 +26,7 @@ This repository is part of a structured project plan to progressively refine a n
 
 | Operation | Throughput | Notes |
 |-----------|------------|-------|
-| Random 100K ops (add/cancel/modify/match) | ~53,769 ops/sec | Naive implementation using `std::map` + `std::list` + heap allocation |
+| Random 100K ops (add/cancel/modify/match) | ~53,769 ops/sec | Current implementation with std::map + std::list; memory pool in place but STL containers still dominate runtime |
 
 ---
 
@@ -56,28 +57,29 @@ Profiling (via gperftools `pprof`) shows current hot spots:
 - **65% of CPU time in libc++** (`std::map`, `std::list`, heap allocations)
 - `cancel_order` and `modify_order` dominate due to pointer chasing in linked lists
 - Confirms that memory pool + cache-friendly data structures are the right next steps
+- Post implementation of memory pool indicates that container redesign will yield further gains.
 
 ---
 
 ## 🛠️ How to Build & Run
 ### Build
 ```bash
-cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release
-cmake --build build-release -j
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
 ```
 
 ### Run demo app
 ```bash
-./build-release/demo_app
+./build/OrderBookApp
 ```
 ### Run tests
 ```bash
-ctest --test-dir build-release --output-on-failure
+ctest --test-dir build --output-on-failure
 ```
 ### Run with profiler
 ```bash
-CPUPROFILE=profile.out ./build-release/OrderBookTests --gtest_filter=LimitOrderBookStressTest.RandomizedOperationsWithTiming
-pprof --pdf ./build-release/OrderBookTests profile.out > profile.pdf
+CPUPROFILE=profile.out ./build/OrderBookTests --gtest_filter=LimitOrderBookStressTest.RandomizedOperationsWithTiming
+pprof --pdf ./build/OrderBookTests profile.out > profile.pdf
 ```
 ### References
 - Performance-Aware Programming (Fermilab, 2019)
@@ -87,3 +89,5 @@ pprof --pdf ./build-release/OrderBookTests profile.out > profile.pdf
 ### Author's Note
 This project is part of my exploration into systems-level software engineering for HFT.
 Each milestone demonstrates mastery of both correctness-first engineering and performance-critical optimisation.
+
+The memory pool implementation marks the first step toward deterministic latency, and future stages will focus on cache-friendly data structures for true “ultra-fast” performance.
