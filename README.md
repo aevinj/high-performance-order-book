@@ -15,18 +15,26 @@ This repository is part of a structured project plan to progressively refine a n
   - Multi-level sweeps
   - Price–time priority
 - ✅ Stress test framework with invariant checks
-- ✅ Unit test suite (GoogleTest) — 9 functional tests
-- ✅ Basic performance benchmarking (~54K ops/sec @ 100K random ops, Release build)
-- ✅ Custom memory pool for order allocation (eliminates heap allocation overhead, prepares for deterministic latency)
+- ✅ Unit test suite (GoogleTest) — 10+ functional tests
+- ✅ Profiling support (gperftools)
+- ✅ Custom memory pool for order allocation (deterministic latency, no heap allocs in hot path)
+- ✅ Fixed tick size (0.01) and bounded price range (90–110)
+- ✅ Price-indexed vector of levels instead of std::map (removes red–black tree overhead)
+- ✅ Active level tracking (std::set) for fast best-bid / best-ask access
 
 ---
 
 ## 🧪 Benchmark Results (Baseline)
 **Environment:** macOS, Apple M2, Release build
 
-| Operation | Throughput | Notes |
-|-----------|------------|-------|
-| Random 100K ops (add/cancel/modify/match) | ~53,769 ops/sec | Current implementation with std::map + std::list; memory pool in place but STL containers still dominate runtime |
+| Stage | Operation | Throughput | Notes |
+|-------|-----------|------------|-------|
+|Baseline| Random 100K ops (add/cancel/modify/match) | ~53,769 ops/sec | std::map + std::list, heavy STL overhead |
+|Memory Pool| Same Workload | ~50-55k ops/sec | Heap allocs removed, but container costs dominate |
+|Price-Indexed Vector + Active Level Sets| Same Workload | ~563,683 ops/sec | Major redesign: contiguous levels, integer tick indexing, active bid/ask tracking |
+
+
+This marks a 10x throughput improvement over the baseline by eliminating cache-unfriendly containers and scanning.
 
 ---
 
@@ -39,25 +47,31 @@ This project is being developed iteratively. Each stage is a learning milestone 
    - Heap allocation for orders
    - Stress testing and profiling setup
 
-2. **Optimizations (Planned)**
-   - Replace dynamic allocation with a **memory pool** for deterministic performance
-   - Replace `std::list` with **cache-friendly deque or ring buffer**
-   - Replace `std::map` with a **flat hash map** or **price-indexed array**
-   - Benchmark and document improvements after each optimization
+2. **Optimizations (Current Stage)**
+   - Memory pool allocator
+   - Price-indexed vector levels
+   - Active level sets for O(1) best bid/ask lookup
 
-3. **Advanced Extensions**
+3. **Advanced Extensions (Planned)**
    - Backtesting integration
    - Persistent logging of trades
-   - Comparison of C++ vs Rust implementations
 
 ---
 
 ## 📊 Profiling Insights (Baseline)
-Profiling (via gperftools `pprof`) shows current hot spots:
-- **65% of CPU time in libc++** (`std::map`, `std::list`, heap allocations)
-- `cancel_order` and `modify_order` dominate due to pointer chasing in linked lists
-- Confirms that memory pool + cache-friendly data structures are the right next steps
-- Post implementation of memory pool indicates that container redesign will yield further gains.
+Profiling (via gperftools pprof) evolution:
+
+- Baseline:
+   - ~65% CPU time in libc++ (std::map, std::list, heap allocations)
+   - Cancels dominated due to pointer chasing in linked lists
+
+- After Memory Pool:
+   - Allocator overhead gone, but STL containers still bottleneck
+
+- After Vector Levels + Active Sets:
+   - Runtime dominated by matching logic itself
+   - Cache locality dramatically improved
+   - Cancel/insert operations O(log N) on active sets (N = active price levels)
 
 ---
 
@@ -80,6 +94,7 @@ ctest --test-dir build --output-on-failure
 ```bash
 CPUPROFILE=profile.out ./build/OrderBookTests --gtest_filter=LimitOrderBookStressTest.RandomizedOperationsWithTiming
 pprof --pdf ./build/OrderBookTests profile.out > profile.pdf
+pprof --text ./build/OrderBookTests profile.out | head -40
 ```
 ### References
 - Performance-Aware Programming (Fermilab, 2019)
@@ -88,6 +103,8 @@ pprof --pdf ./build/OrderBookTests profile.out > profile.pdf
 
 ### Author's Note
 This project is part of my exploration into systems-level software engineering for HFT.
-Each milestone demonstrates mastery of both correctness-first engineering and performance-critical optimisation.
+Each milestone demonstrates mastery of correctness-first engineering and performance-critical optimisation.
 
-The memory pool implementation marks the first step toward deterministic latency, and future stages will focus on cache-friendly data structures for true “ultra-fast” performance.
+The latest redesign (tick-based vector levels + active tracking) proves how much throughput can be unlocked by aligning data structures with hardware realities.
+
+Future work will push towards O(1) cancels with ring buffers, flat hash maps for order lookups, and further cache-friendly design.
