@@ -20,63 +20,67 @@ void LimitOrderBook::process_order(int64_t order_id, int64_t price, int32_t quan
 
 void LimitOrderBook::match(Order* incoming) {
     if (incoming->side == OrderSide::Buy) {
-        // BUY should match only against resting SELLS at prices <= incoming->price
-        for (size_t idx = 0; idx < NUM_LEVELS && incoming->quantity > 0; ++idx) {
-            double level_price = MIN_PRICE + idx * TICK_SIZE;
-            if (level_price > incoming->price) break;
+        while (incoming->quantity > 0 && !active_asks.empty()) {
+            size_t best_ask_idx = *active_asks.begin();
+            double best_ask_price = MIN_PRICE + best_ask_idx * TICK_SIZE;
 
-            auto& level = price_levels[idx];
-            auto& q = level.orders;
+            if (incoming->price < best_ask_price) break;
 
-            for (auto it = q.begin(); it != q.end() && incoming->quantity > 0; ) {
+            auto& level = price_levels[best_ask_idx];
+            auto& orders_vec = level.orders;
+
+            for (auto it = orders_vec.begin(); it != orders_vec.end() && incoming->quantity > 0;) {
                 Order* resting = *it;
-                if (resting->side != OrderSide::Sell) { // filter same-side orders
-                    ++it;
-                    continue;
-                }
+                if (resting->side != OrderSide::Sell) break;
 
                 int32_t trade_qty = std::min(incoming->quantity, resting->quantity);
                 incoming->quantity -= trade_qty;
-                resting->quantity  -= trade_qty;
+                resting->quantity -= trade_qty;
                 level.total_quantity -= trade_qty;
 
                 if (resting->quantity == 0) {
                     orders_by_id.erase(resting->order_id);
                     order_pool.deallocate(resting);
-                    it = q.erase(it);
+                    it = orders_vec.erase(it);
                 } else {
                     ++it;
                 }
             }
+
+            if (orders_vec.empty()) {
+                active_asks.erase(best_ask_idx);
+            }
         }
-    } else {
-        // SELL should match only against resting BUYS at prices >= incoming->price
-        for (size_t idx = NUM_LEVELS - 1; idx < NUM_LEVELS && incoming->quantity > 0; --idx) {
-            double level_price = MIN_PRICE + idx * TICK_SIZE;
-            if (level_price < incoming->price) break;
+    } else { // incoming->side == Sell
+        while (incoming->quantity > 0 && !active_bids.empty()) {
+            size_t best_bid_idx = *active_bids.rbegin();
+            double best_bid_price = MIN_PRICE + best_bid_idx * TICK_SIZE;
 
-            auto& level = price_levels[idx];
-            auto& q = level.orders;
+            if (incoming->price > best_bid_price) break;
 
-            for (auto it = q.begin(); it != q.end() && incoming->quantity > 0; ) {
+            auto& level = price_levels[best_bid_idx];
+            auto& orders_vec = level.orders;
+
+            for (auto it = orders_vec.begin(); it != orders_vec.end() && incoming->quantity > 0;) {
                 Order* resting = *it;
-                if (resting->side != OrderSide::Buy) { // filter same-side orders
-                    ++it;
-                    continue;
-                }
+                if (resting->side != OrderSide::Buy) break;
 
                 int32_t trade_qty = std::min(incoming->quantity, resting->quantity);
                 incoming->quantity -= trade_qty;
-                resting->quantity  -= trade_qty;
+                resting->quantity -= trade_qty;
                 level.total_quantity -= trade_qty;
 
                 if (resting->quantity == 0) {
                     orders_by_id.erase(resting->order_id);
                     order_pool.deallocate(resting);
-                    it = q.erase(it);
+                    it = orders_vec.erase(it);
                 } else {
                     ++it;
                 }
+            }
+
+            if (orders_vec.empty()) {
+                active_bids.erase(best_bid_idx);
             }
         }
     }
@@ -87,34 +91,41 @@ void LimitOrderBook::insert_order(Order* incoming) {
     // The price_levels vector will only ever store one side at a time - if there
     // was a buy and sell at 1 price level, it would've already matched -- its basc
     // a backlog of orders waiting to be matched
-    size_t incoming_idx = price_to_index(incoming->price);
-    price_levels[incoming_idx].orders.push_back(incoming);
-    price_levels[incoming_idx].total_quantity += incoming->quantity;
+    size_t idx = price_to_index(incoming->price);
+    auto& level = price_levels[idx];
+
+    if (level.orders.empty()) {
+        if (incoming->side == OrderSide::Buy) active_bids.insert(idx);
+        else active_asks.insert(idx);
+    }
+
+    level.orders.push_back(incoming);
+    level.total_quantity += incoming->quantity;
 }
 
 void LimitOrderBook::cancel_order(int64_t order_id) {
     auto it = orders_by_id.find(order_id);
-    if (it == orders_by_id.end()) {
-        // std::cout << "Could not find order: " << order_id << std::endl;
-        return;
-    }
+    if (it == orders_by_id.end()) return;
 
     Order* order_ptr = it->second;
     size_t idx = price_to_index(order_ptr->price);
+    auto& level = price_levels[idx];
 
-    // Adjust total
-    price_levels[idx].total_quantity -= order_ptr->quantity;
+    level.total_quantity -= order_ptr->quantity;
 
-    // Remove from queue
-    auto& orders_queue = price_levels[idx].orders;
-    for (auto q_it = orders_queue.begin(); q_it != orders_queue.end(); ++q_it) {
-        if ((*q_it)->order_id == order_id) {
-            orders_queue.erase(q_it);
+    auto& orders_vec = level.orders;
+    for (size_t i = 0; i < orders_vec.size(); ++i) {
+        if (orders_vec[i]->order_id == order_id) {
+            orders_vec.erase(orders_vec.begin() + i);
             break;
         }
     }
 
-    // free + erase
+    if (orders_vec.empty()) {
+        if (order_ptr->side == OrderSide::Buy) active_bids.erase(idx);
+        else active_asks.erase(idx);
+    }
+
     orders_by_id.erase(it);
     order_pool.deallocate(order_ptr);
 }

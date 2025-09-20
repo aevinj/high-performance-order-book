@@ -173,19 +173,78 @@ TEST(LimitOrderBookTest, SameSideDoesNotMatch) {
     ASSERT_EQ(levels[idx].total_quantity, 100);
 }
 
+// --- Active Levels Tracking ---
+
+TEST(LimitOrderBookTest, InsertAddsToActiveLevels) {
+    LimitOrderBook lob;
+    lob.process_order(1, 100.0, 50, OrderSide::Buy);
+    lob.process_order(2, 101.0, 30, OrderSide::Sell);
+
+    auto& levels = lob.get_price_levels();
+    size_t buy_idx = static_cast<size_t>((100.0 - 90.0) / 0.01);
+    size_t sell_idx = static_cast<size_t>((101.0 - 90.0) / 0.01);
+
+    EXPECT_EQ(levels[buy_idx].total_quantity, 50);
+    EXPECT_EQ(levels[sell_idx].total_quantity, 30);
+    EXPECT_FALSE(levels[buy_idx].orders.empty());
+    EXPECT_FALSE(levels[sell_idx].orders.empty());
+}
+
+TEST(LimitOrderBookTest, CancelRemovesFromActiveLevels) {
+    LimitOrderBook lob;
+    lob.process_order(1, 100.0, 50, OrderSide::Buy);
+    lob.cancel_order(1);
+
+    auto& levels = lob.get_price_levels();
+    size_t idx = static_cast<size_t>((100.0 - 90.0) / 0.01);
+
+    EXPECT_TRUE(levels[idx].orders.empty());
+    EXPECT_EQ(levels[idx].total_quantity, 0);
+}
+
+TEST(LimitOrderBookTest, MatchRemovesEmptyLevelsFromActiveSet) {
+    LimitOrderBook lob;
+
+    // Add one ask at 101.0
+    lob.process_order(1, 101.0, 40, OrderSide::Sell);
+    // Add a buy that exactly matches it
+    lob.process_order(2, 101.0, 40, OrderSide::Buy);
+
+    auto& levels = lob.get_price_levels();
+    size_t idx = static_cast<size_t>((101.0 - 90.0) / 0.01);
+
+    EXPECT_TRUE(levels[idx].orders.empty());  // should be cleared
+    EXPECT_EQ(levels[idx].total_quantity, 0); // no leftover qty
+}
+
+TEST(LimitOrderBookTest, PartialFillLeavesLevelActive) {
+    LimitOrderBook lob;
+
+    // Add one ask at 101.0 with 50 qty
+    lob.process_order(1, 101.0, 50, OrderSide::Sell);
+    // Add a buy smaller than that (20 qty)
+    lob.process_order(2, 101.0, 20, OrderSide::Buy);
+
+    auto& levels = lob.get_price_levels();
+    size_t idx = static_cast<size_t>((101.0 - 90.0) / 0.01);
+
+    EXPECT_FALSE(levels[idx].orders.empty());   // still has resting order
+    EXPECT_EQ(levels[idx].total_quantity, 30); // 50 - 20 = 30 left
+}
+
 // --- Stress Testing ---
 
 TEST(LimitOrderBookStressTest, RandomizedOperationsWithTiming) {
     LimitOrderBook lob;
     std::mt19937 rng(42); // fixed seed for reproducibility
 
-    // Random price in [90.00, 110.00] then quantize to 0.01
-    std::uniform_real_distribution<double> price_dist(MIN_PRICE, MAX_PRICE);
+    // Use real distribution for prices (tick size 0.01, range 90–110)
+    std::uniform_real_distribution<double> price_dist(90.0, 110.0);
     std::uniform_int_distribution<int32_t> qty_dist(1, 200);
     std::uniform_int_distribution<int> side_dist(0, 1);
-    std::uniform_int_distribution<int> op_dist(0, 9); // 0-6 = add, 7 = cancel, 8 = modify, 9 = no-op
+    std::uniform_int_distribution<int> op_dist(0, 9); // 0–6 = add, 7 = cancel, 8 = modify, 9 = no-op
 
-    std::unordered_set<int64_t> active_ids;
+    std::vector<int64_t> active_ids;  // faster than unordered_set
     int64_t next_order_id = 1;
 
     const int NUM_OPS = 100000; // scale this up later
@@ -196,30 +255,31 @@ TEST(LimitOrderBookStressTest, RandomizedOperationsWithTiming) {
         int op = op_dist(rng);
 
         if (op <= 6) {
-            // Add order
+            // --- Add order ---
             int64_t id = next_order_id++;
-            double price = quantize(price_dist(rng));
+            double price = price_dist(rng);
             int32_t qty = qty_dist(rng);
             OrderSide side = side_dist(rng) == 0 ? OrderSide::Buy : OrderSide::Sell;
 
-            // Ensure price is in-range after quantization
-            if (price < MIN_PRICE) price = MIN_PRICE;
-            if (price > MAX_PRICE) price = MAX_PRICE;
-
             lob.process_order(id, price, qty, side);
-            active_ids.insert(id);
+            active_ids.push_back(id);
+
         } else if (op == 7 && !active_ids.empty()) {
-            // Cancel random order
-            auto it = active_ids.begin();
-            std::advance(it, rng() % active_ids.size());
-            lob.cancel_order(*it);
-            active_ids.erase(it);
+            // --- Cancel random order ---
+            size_t idx = rng() % active_ids.size();
+            int64_t victim = active_ids[idx];
+            lob.cancel_order(victim);
+
+            // swap–pop removal from vector
+            active_ids[idx] = active_ids.back();
+            active_ids.pop_back();
+
         } else if (op == 8 && !active_ids.empty()) {
-            // Modify random order
-            auto it = active_ids.begin();
-            std::advance(it, rng() % active_ids.size());
+            // --- Modify random order ---
+            size_t idx = rng() % active_ids.size();
+            int64_t target = active_ids[idx];
             int32_t new_qty = qty_dist(rng);
-            lob.modify_order(*it, new_qty);
+            lob.modify_order(target, new_qty);
         }
         // op == 9 → no-op
     }
@@ -231,19 +291,15 @@ TEST(LimitOrderBookStressTest, RandomizedOperationsWithTiming) {
     std::cout << "Performed " << NUM_OPS << " operations in " << elapsed_ms << " ms ("
               << ops_per_sec << " ops/sec)\n";
 
-    // --- Invariant checks over the vector ladder ---
+    // --- Invariant checks ---
     const auto& levels = lob.get_price_levels();
-    for (std::size_t i = 0; i < levels.size(); ++i) {
-        const auto& pl = levels[i];
+    for (size_t idx = 0; idx < levels.size(); ++idx) {
+        const auto& level = levels[idx];
         int sum = 0;
-        for (auto* order : pl.orders) {
+        for (auto* order : level.orders) {
             sum += order->quantity;
-            // Also assert price is consistent with ladder slot
-            // (Optional sanity): orders are allowed to share level by price only
         }
-        EXPECT_EQ(sum, pl.total_quantity) << "at price " << index_to_price(i);
-        if (pl.orders.empty()) {
-            EXPECT_EQ(pl.total_quantity, 0) << "Non-zero total at empty level " << index_to_price(i);
-        }
+        EXPECT_EQ(sum, level.total_quantity) << " at price index " << idx;
     }
 }
+

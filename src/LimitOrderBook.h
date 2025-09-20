@@ -3,9 +3,8 @@
 
 #include "Order.h"
 #include <vector>
-#include <deque>
+#include <set>
 #include <list>
-#include <memory> // For std::unique_ptr
 #include <unordered_map>
 #include <MemoryPool.h>
 
@@ -13,7 +12,7 @@
 class PriceLevel {
 public:
     // Use a list to maintain Price-Time Priority
-    std::deque<Order*> orders;
+    std::vector<Order*> orders;
     int32_t total_quantity = 0;
 };
 
@@ -28,6 +27,9 @@ private:
     std::vector<PriceLevel> price_levels;
     std::unordered_map<int64_t, Order*> orders_by_id; // For quick order lookup by ID
     MemoryPool<Order> order_pool;
+
+    std::set<size_t> active_bids; // indices of price levels with buy orders
+    std::set<size_t> active_asks; // indices of price levels with sell orders
 
     size_t price_to_index(double price) const {
         return static_cast<size_t>((price - MIN_PRICE) / TICK_SIZE);
