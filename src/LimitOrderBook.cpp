@@ -153,7 +153,7 @@ void LimitOrderBook::cancel_order(int64_t order_id) {
     // Step 1: Find the order using .find() and get its iterator.
     auto it = orders_by_id.find(order_id);
     if (it == orders_by_id.end()) {
-        std::cout << "Could not find order: " << order_id << std::endl;
+        // std::cout << "Could not find order: " << order_id << std::endl;
         return; // Return immediately if not found
     }
 
@@ -218,7 +218,7 @@ void LimitOrderBook::cancel_order(int64_t order_id) {
 void LimitOrderBook::modify_order(int64_t order_id, int32_t new_quantity) {
     auto order_by_id_it = orders_by_id.find(order_id);
     if (order_by_id_it == orders_by_id.end()) {
-        std::cout << "Could not find order: " << order_id << std::endl;
+        // std::cout << "Could not find order: " << order_id << std::endl;
         return; // Return immediately if not found
     }
 
