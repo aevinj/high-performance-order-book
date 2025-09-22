@@ -3,79 +3,106 @@
 A C++ implementation of a Limit Order Book designed as a foundation for exploring
 **ultra-low-latency trading system components**.  
 
-This repository is part of a structured project plan to progressively refine a naive, correct implementation into an
-**optimized, cache-friendly, high-performance engine**, similar in design goals to those used in High-Frequency Trading (HFT).
+This repository documents the journey from a simple, correct baseline into an **optimized, cache-friendly, high-performance engine**, inspired by the design principles of High-Frequency Trading (HFT) systems
 
 ---
 
-## 📌 Features (Current Implementation)
+## Features (Current Implementation)
+
 - ✅ Add, cancel, and modify limit orders
 - ✅ Matching engine with:
-  - Partial and full fills
-  - Multi-level sweeps
-  - Price–time priority
+   - Partial and full fills
+   - Multi-level sweeps
+   - Price–time priority
 - ✅ Stress test framework with invariant checks
 - ✅ Unit test suite (GoogleTest) — 10+ functional tests
 - ✅ Profiling support (gperftools)
-- ✅ Custom memory pool for order allocation (deterministic latency, no heap allocs in hot path)
+- ✅ Custom memory pool for deterministic order allocation (no heap allocs in hot path)
 - ✅ Fixed tick size (0.01) and bounded price range (90–110)
 - ✅ Price-indexed vector of levels instead of std::map (removes red–black tree overhead)
-- ✅ Active level tracking (std::set) for fast best-bid / best-ask access
+- ✅ Active level tracking (best bid/ask lookup in `O(1)`)
+- Reserved capacity for orders_by_id (avoids costly rehashing)
 
 ---
 
-## 🧪 Benchmark Results (Baseline)
+## Benchmark Results (Baseline)
 **Environment:** macOS, Apple M2, Release build
 
-| Stage | Operation | Throughput | Notes |
-|-------|-----------|------------|-------|
-|Baseline| Random 100K ops (add/cancel/modify/match) | ~53,769 ops/sec | std::map + std::list, heavy STL overhead |
-|Memory Pool| Same Workload | ~50-55k ops/sec | Heap allocs removed, but container costs dominate |
-|Price-Indexed Vector + Active Level Sets| Same Workload | ~563,683 ops/sec | Major redesign: contiguous levels, integer tick indexing, active bid/ask tracking |
+**Workload:** Random 100K operations (add / cancel / modify / match)
 
+| Stage | Throughput | Notes |
+|-------|------------|-------|
+|Baseline| ~53,769 ops/sec | ```std::map``` + ```std::list``` + heap allocation |
+|Memory Pool| ~50-55k ops/sec | Allocation costs removed, container overhead still dominant |
+|Price-Indexed Vector + Active Level Sets| ~563,683 ops/sec | 10× jump — contiguous levels, integer tick indexing |
+|+ Reserved Hash Table Capacity| ~785,000 ops/sec | Avoids rehashing during stress workload |
 
-This marks a 10x throughput improvement over the baseline by eliminating cache-unfriendly containers and scanning.
+**Overall: ~15× improvement from baseline by aligning data structures with hardware realities.**
 
 ---
 
-## 🔬 Development Roadmap
-This project is being developed iteratively. Each stage is a learning milestone and introduces key systems-programming techniques:
+## Architecture Evolution
 
-1. **Baseline Correctness (Current Stage)**
+```mermaid
+flowchart TD
+    subgraph Baseline["Baseline (Naive)"]
+        A["std::map (red-black tree)"] --> B["std::list (per price level)"]
+        B --> C["Heap-allocated Order objects"]
+    end
+
+    subgraph Optimised["Optimised (Current)"]
+        X["Vector of Price Levels (tick-indexed)"] --> Y["Vector<Order*> (FIFO per level)"]
+        Y --> Z["Memory Pool (pre-allocated Orders)"]
+        X --> W["Active Bid/Ask Sets (track non-empty levels)"]
+    end
+
+
+---
+## Performance Evolution
+
+```mermaid
+bar
+    title Ops/sec vs Optimisation Stage
+    x-axis [Baseline, Memory Pool, Vector Levels, Vector+Reserve]
+    y-axis "Ops/sec" 0 --> 800000
+    bar [53769, 55000, 563683, 785000]
+
+---
+
+## Development Roadmap
+Each stage is a milestone in systems-programming design:
+
+1. **Baseline Correctness**
    - `std::map` for bids/asks
-   - `std::list` for price level FIFO queues
-   - Heap allocation for orders
-   - Stress testing and profiling setup
+   - `std::list` for price-time order queues
+   - Naive heap allocation
+   - Stress testing + profiling setup
 
-2. **Optimizations (Current Stage)**
+2. **Optimisations (Current)**
    - Memory pool allocator
-   - Price-indexed vector levels
-   - Active level sets for O(1) best bid/ask lookup
+   - Price-indexed vector levels (integer tick indexing)
+   - Active level tracking sets
+   - Pre-reserved `orders_by_id` capacity
 
-3. **Advanced Extensions (Planned)**
+3. **Future Extensions**
+   - Ring buffer for O(1) cancels
+   - Flat hash maps for order lookups under high churn
    - Backtesting integration
    - Persistent logging of trades
 
 ---
 
-## 📊 Profiling Insights (Baseline)
+## Profiling Insights (Baseline)
 Profiling (via gperftools pprof) evolution:
 
-- Baseline:
-   - ~65% CPU time in libc++ (std::map, std::list, heap allocations)
-   - Cancels dominated due to pointer chasing in linked lists
-
-- After Memory Pool:
-   - Allocator overhead gone, but STL containers still bottleneck
-
-- After Vector Levels + Active Sets:
-   - Runtime dominated by matching logic itself
-   - Cache locality dramatically improved
-   - Cancel/insert operations O(log N) on active sets (N = active price levels)
+- **Baseline**: ~65% CPU in `libc++` (`std::map`, `std::list`, allocator churn).
+- **With Memory Pool**: Allocation costs gone, but list traversal & tree operations remain bottleneck.
+- **With Vector Levels + Active Sets**: Matching logic dominates runtime; cache locality greatly improved.
+- **With Reserved Hash Table**: Reduced rehashing → smoother throughput in stress tests.
 
 ---
 
-## 🛠️ How to Build & Run
+## How to Build & Run
 ### Build
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -102,9 +129,12 @@ pprof --text ./build/OrderBookTests profile.out | head -40
 - Google Performance Tools (gperftools)
 
 ### Author's Note
-This project is part of my exploration into systems-level software engineering for HFT.
-Each milestone demonstrates mastery of correctness-first engineering and performance-critical optimisation.
+This project demonstrates a full optimisation journey: from naive STL containers to a cache-friendly, low-latency order book that achieves nearly 800k ops/sec under stress workloads.
 
-The latest redesign (tick-based vector levels + active tracking) proves how much throughput can be unlocked by aligning data structures with hardware realities.
+Key takeaways:
 
-Future work will push towards O(1) cancels with ring buffers, flat hash maps for order lookups, and further cache-friendly design.
+- Hardware-aware data structure design yields order-of-magnitude performance gains.
+- Not all optimisations pay off (e.g. pre-reserving per-level storage hurt performance).
+- Measuring, profiling, and iterating are more important than guessing.
+
+This project is portfolio-ready and showcases my ability to apply low-level systems design and performance engineering principles to a real-world trading component.
