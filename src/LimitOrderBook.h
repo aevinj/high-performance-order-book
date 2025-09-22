@@ -5,6 +5,7 @@
 #include <vector>
 #include <set>
 #include <list>
+// #include <absl/container/flat_hash_map.h>
 #include <unordered_map>
 #include <MemoryPool.h>
 
@@ -25,7 +26,8 @@ private:
 
     // Maps for bids (sorted descending) and asks (sorted ascending)
     std::vector<PriceLevel> price_levels;
-    std::unordered_map<int64_t, Order*> orders_by_id; // For quick order lookup by ID
+    // std::unordered_map<int64_t, Order*> orders_by_id;
+    // absl::flat_hash_map<int64_t, Order*> orders_by_id; // For quick order lookup by ID
     MemoryPool<Order> order_pool;
 
     std::set<size_t> active_bids; // indices of price levels with buy orders
@@ -37,8 +39,12 @@ private:
     void match(Order* incoming);
     void insert_order(Order* incoming);
 public:
+    std::unordered_map<int64_t, Order*> orders_by_id;
+    // absl::flat_hash_map<int64_t, Order*> orders_by_id; // For quick order lookup by ID
     explicit LimitOrderBook(size_t pool_size = 1'000'000)
-        : price_levels(NUM_LEVELS), order_pool(pool_size) {}
+        : price_levels(NUM_LEVELS), order_pool(pool_size) {
+            orders_by_id.reserve(100'000);
+        }
     // void add_order(int64_t order_id, int64_t price, int32_t quantity, OrderSide side);
     void process_order(int64_t order_id, int64_t price, int32_t quantity, OrderSide side);
     void cancel_order(int64_t order_id);
